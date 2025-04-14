@@ -1,8 +1,7 @@
-# ------------------------------------------
-# DEPLOY DOCS 
-# ------------------------------------------
 
-# Trigger type: this makes the workflow reusable
+# DEPLOY DOCS 
+
+
 on:
   workflow_call:
     inputs:
@@ -18,7 +17,7 @@ on:
       url_prefix:             # Prefix to prepend to image/URL paths 
         required: true
         type: string
-      submodules:             # Optional: Whether to initialize submodules in the caller repo
+      submodules:             # Optional: Whether to initialize submodules in the caller repo #The worm 
         required: false
         type: boolean
         default: false
@@ -36,8 +35,8 @@ jobs:
       - name: Checkout caller repo
         uses: actions/checkout@v4
         with:
-          submodules: ${{ inputs.submodules }} # If needed, checkout submodules (used by Wormhole)
-          fetch-depth: 0                       # Full history is required for mkdocs gh-deploy
+          submodules: ${{ inputs.submodules }} # If needed
+          fetch-depth: 0                       # Full history 
 
       # 2. Configure Git credentials (needed to deploy gh-pages)
       - name: Configure Git Creds
@@ -46,6 +45,7 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
 
       # 3. Pull specified docs repo
+      
       - name: Checkout target docs repo
         uses: actions/checkout@v4
         with:
@@ -59,11 +59,11 @@ jobs:
         with:
           python-version: 3.x
 
-      # 5. Create a unique cache key based on week number for dependency caching
+      # 5.Create a unique cache key based on week number for dependency caching
       - name: Cache MkDocs Material
         run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
 
-      # 6. Restore or save the `.cache` directory used by MkDocs Material
+      # 6.Restore or save the `.cache` directory used by MkDocs Material
       - uses: actions/cache@v4
         with:
           key: mkdocs-material-${{ env.cache_id }}
@@ -71,13 +71,14 @@ jobs:
           restore-keys: |
             mkdocs-material-
 
-      # 7. Install required system packages (compilers, headers, etc.)
+      # 7. Install required system packages (compilers, headers,)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-dev build-essential
 
       # 8. Install Dependencies
+      
       - name: Install Python Requirements
         run: |
           python -m pip install --upgrade pip setuptools 'cython<3.0.0' wheel
