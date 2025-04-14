@@ -1,5 +1,5 @@
 
-# DEPLOY DOCS 
+
 
 
 on:
@@ -97,4 +97,4 @@ jobs:
 
       # 10. Deploy
       - name: Deploy Docs with MkDocs
-        #run: mkdocs gh-deploy --force --clean --site-dir ./site
+        run: mkdocs gh-deploy --force --clean --site-dir ./site
