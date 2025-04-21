@@ -1,28 +1,25 @@
-
-
-
+name: Deploy Docs (Reusable)
 
 on:
   workflow_call:
     inputs:
-      branch:                 # The branch to deploy docs 
+      branch:
         required: true
         type: string
-      repository:             # The full repo name containing the docs 
+      repository:
         required: true
         type: string
-      path:                   # Local folder path to place the checked-out docs
+      path:
         required: true
         type: string
-      url_prefix:             # Prefix to prepend to image/URL paths 
+      url_prefix:
         required: true
         type: string
-      submodules:             # Optional: Whether to initialize submodules in the caller repo #The worm 
+      submodules:
         required: false
         type: boolean
         default: false
 
-# Set permission 
 permissions:
   contents: write
 
@@ -31,39 +28,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout the repository that *called* this workflow
       - name: Checkout caller repo
         uses: actions/checkout@v4
         with:
-          submodules: ${{ inputs.submodules }} # If needed
-          fetch-depth: 0                       # Full history 
+          submodules: ${{ inputs.submodules }}
+          fetch-depth: 0
 
-      # 2. Configure Git credentials (needed to deploy gh-pages)
       - name: Configure Git Creds
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
 
-      # 3. Pull specified docs repo
-      
       - name: Checkout target docs repo
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.repository }}   
-          ref: ${{ inputs.branch }}              
-          path: ${{ inputs.path }}               
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.branch }}
+          path: ${{ inputs.path }}
 
-      # 4. Setup environment
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.x
 
-      # 5.Create a unique cache key based on week number for dependency caching
       - name: Cache MkDocs Material
         run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
 
-      # 6.Restore or save the `.cache` directory used by MkDocs Material
       - uses: actions/cache@v4
         with:
           key: mkdocs-material-${{ env.cache_id }}
@@ -71,30 +61,22 @@ jobs:
           restore-keys: |
             mkdocs-material-
 
-      # 7. Install required system packages (compilers, headers,)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-dev build-essential
 
-      # 8. Install Dependencies
-      
       - name: Install Python Requirements
         run: |
           python -m pip install --upgrade pip setuptools 'cython<3.0.0' wheel
           python -m pip install -r requirements.txt
 
-      # 9. Rewrite relative paths in markdown files for deployment under a subpath
       - name: Rewrite image and link paths
         run: |
-          # Update image and link references in Markdown files
           find ${{ inputs.path }} -type f -name "*.md" -exec sed -i \
             -e "s|](/|](/${{ inputs.url_prefix }}/|g" \
             -e "s|href=\"/|href=\"/${{ inputs.url_prefix }}/|g" {} \;
-          
-          # Rewrite `/assets` to just `assets` to prevent broken links
           find . -type f -exec sed -i 's|/assets|assets|g' {} +
 
-      # 10. Deploy
       - name: Deploy Docs with MkDocs
         run: mkdocs gh-deploy --force --clean --site-dir ./site
