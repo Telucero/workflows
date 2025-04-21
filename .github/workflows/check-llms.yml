@@ -1,9 +1,16 @@
 name: Validate llms-full.txt
 
 on:
-  pull_request:
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      llms_script_path:
+        required: false
+        type: string
+        default: ".github/scripts/llms-scripts/generate_llms.py"
+      llms_file_name:
+        required: false
+        type: string
+        default: "llms-full.txt"
 
 jobs:
   check-llms:
@@ -23,28 +30,28 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml requests beautifulsoup4
 
-      - name: Get SHA256 hash of the PR's llms-full.txt file
+      - name: Get SHA256 hash of the PR's ${{ inputs.llms_file_name }}
         id: pr_llms_hash
         run: |
-          if [ -f "llms-full.txt" ]; then
-            sha256sum llms-full.txt | awk '{ print $1 }' > pr_sha256.txt
+          if [ -f "${{ inputs.llms_file_name }}" ]; then
+            sha256sum "${{ inputs.llms_file_name }}" | awk '{ print $1 }' > pr_sha256.txt
           else
             echo "0000" > pr_sha256.txt
           fi
           cat pr_sha256.txt
 
-      - name: Generate llms-full.txt using the Python script
-        run: python3 .github/scripts/llms-scripts/generate_llms.py
+      - name: Generate ${{ inputs.llms_file_name }} using script
+        run: python3 ${{ inputs.llms_script_path }}
 
-      - name: Calculate SHA256 hash of the generated llms-full.txt
+      - name: Calculate SHA256 hash of the generated file
         id: generated_llms_hash
         run: |
-          llms_file="${GITHUB_WORKSPACE}/llms-full.txt"
+          llms_file="${{ github.workspace }}/${{ inputs.llms_file_name }}"
 
           if [ -f "$llms_file" ]; then
             sha256sum "$llms_file" | awk '{ print $1 }' > generated_sha256.txt
           else
-            echo "Error: llms-full.txt not found at $llms_file"
+            echo "Error: $llms_file not found"
             exit 1
           fi
           cat generated_sha256.txt
@@ -55,10 +62,10 @@ jobs:
           pr_hash=$(cat pr_sha256.txt)
 
           if [ "$generated_hash" != "$pr_hash" ]; then
-            echo "Error: SHA256 hashes do not match. The generated llms-full.txt file differs from the one in the PR."
+            echo "Error: SHA256 hashes do not match. The generated ${{ inputs.llms_file_name }} file differs from the one in the PR."
             echo "You need to run the generate LLMS script:"
-            echo "python3 .github/scripts/llms-scripts/generate_llms.py"
+            echo "python3 ${{ inputs.llms_script_path }}"
             exit 1
           else
-            echo "SHA256 hashes match. The llms-full.txt file is consistent."
+            echo "SHA256 hashes match. The file is consistent."
           fi
