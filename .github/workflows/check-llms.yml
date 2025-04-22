@@ -1,24 +1,32 @@
-name: Validate llms-full.txt
+name: Validate Generated File
 
 on:
   workflow_call:
     inputs:
-      llms_script_path:
+      file_path:
+        required: true
+        type: string
+        description: "Path to the file to validate (e.g. llms-full.txt)"
+      generate_script:
+        required: true
+        type: string
+        description: "Script to run to regenerate the file"
+      working_directory:
         required: false
         type: string
-        default: ".github/scripts/llms-scripts/generate_llms.py"
-      llms_file_name:
-        required: false
-        type: string
-        default: "llms-full.txt"
+        default: "."
+        description: "Directory where the generate script should be run"
+
+permissions:
+  contents: read
 
 jobs:
-  check-llms:
+  validate:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -30,42 +38,39 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml requests beautifulsoup4
 
-      - name: Get SHA256 hash of the PR's ${{ inputs.llms_file_name }}
-        id: pr_llms_hash
+      - name: Get SHA256 hash of the PR file
+        id: pr_hash
         run: |
-          if [ -f "${{ inputs.llms_file_name }}" ]; then
-            sha256sum "${{ inputs.llms_file_name }}" | awk '{ print $1 }' > pr_sha256.txt
+          if [ -f "${{ inputs.file_path }}" ]; then
+            sha256sum "${{ inputs.file_path }}" | awk '{ print $1 }' > pr_sha256.txt
           else
             echo "0000" > pr_sha256.txt
           fi
-          cat pr_sha256.txt
 
-      - name: Generate ${{ inputs.llms_file_name }} using script
-        run: python3 ${{ inputs.llms_script_path }}
-
-      - name: Calculate SHA256 hash of the generated file
-        id: generated_llms_hash
+      - name: Run generate script
         run: |
-          llms_file="${{ github.workspace }}/${{ inputs.llms_file_name }}"
+          cd "${{ inputs.working_directory }}"
+          python3 "${{ inputs.generate_script }}"
 
-          if [ -f "$llms_file" ]; then
-            sha256sum "$llms_file" | awk '{ print $1 }' > generated_sha256.txt
+      - name: Get SHA256 hash of the regenerated file
+        id: gen_hash
+        run: |
+          if [ -f "${{ inputs.file_path }}" ]; then
+            sha256sum "${{ inputs.file_path }}" | awk '{ print $1 }' > generated_sha256.txt
           else
-            echo "Error: $llms_file not found"
+            echo "Error: ${!! inputs.file_path} not found after running generation script."
             exit 1
           fi
-          cat generated_sha256.txt
 
-      - name: Compare the SHA256 hashes
+      - name: Compare SHA256 hashes
         run: |
-          generated_hash=$(cat generated_sha256.txt)
+          gen_hash=$(cat generated_sha256.txt)
           pr_hash=$(cat pr_sha256.txt)
 
-          if [ "$generated_hash" != "$pr_hash" ]; then
-            echo "Error: SHA256 hashes do not match. The generated ${{ inputs.llms_file_name }} file differs from the one in the PR."
-            echo "You need to run the generate LLMS script:"
-            echo "python3 ${{ inputs.llms_script_path }}"
+          if [ "$gen_hash" != "$pr_hash" ]; then
+            echo "Hash mismatch. Please run the generation script locally and commit the changes:"
+            echo "    python3 ${{ inputs.generate_script }}"
             exit 1
           else
-            echo "SHA256 hashes match. The file is consistent."
+            echo "Hashes match. File is valid."
           fi
