@@ -1,29 +1,31 @@
-name: Check MkDocs Build
+name: Deploy Docs (Reusable)
 
 on:
   workflow_call:
     inputs:
-      mkdocs_repo:
+      branch:
         required: true
         type: string
-        description: "The full GitHub path to the mkdocs repo (e.g. papermoonio/polkadot-mkdocs)"
-      docs_dir:
-        required: false
+      repository:
+        required: true
         type: string
-        default: "docs"
-        description: "Directory where docs should be placed inside the mkdocs repo"
-      branch:
-        required: false
+      path:
+        required: true
         type: string
-        default: "main"
+      url_prefix:
+        required: true
+        type: string
+      submodules:
+        required: false
+        type: boolean
+        default: false
+      docs_url:
+        required: false
+        type: string  # New addition
       rewrite_image_paths:
         required: false
         type: boolean
         default: false
-      rewrite_prefix:
-        required: false
-        type: string
-        default: ""
       deploy:
         required: false
         type: boolean
@@ -33,49 +35,35 @@ permissions:
   contents: write
 
 jobs:
-  build-or-deploy-docs:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout calling repo (docs source)
+      - name: Checkout caller repo
         uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.submodules }}
+          fetch-depth: 0
 
-      - name: Configure Git Credentials
+      - name: Configure Git Creds
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
 
-      - name: Clone MkDocs repo
+      - name: Checkout target docs repo
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.mkdocs_repo }}
-          path: mkdocs-repo
+          repository: ${{ inputs.repository }}
           ref: ${{ inputs.branch }}
-
-      # Handle dynamic docs directory based on repo name
-      - name: Adjust docs directory if necessary
-        run: |
-          repo_name="${{ inputs.mkdocs_repo }}"
-          if [[ "$repo_name" == "your-org/kluster-docs" ]]; then
-            echo "Using default 'docs' directory for Kluster repo"
-            export DOCS_DIR="docs"
-          else
-            echo "Using custom docs directory for other repos"
-            export DOCS_DIR="${{ inputs.docs_dir }}"
-          fi
-          echo "DOCS_DIR=${DOCS_DIR}" >> $GITHUB_ENV
-
-      - name: Move docs into mkdocs repo
-        run: |
-          mkdir -p mkdocs-repo/${{ env.DOCS_DIR }}
-          find . -mindepth 1 -maxdepth 1 ! -name 'mkdocs-repo' -exec mv {} mkdocs-repo/${{ env.DOCS_DIR }}/ \;
+          path: ${{ inputs.path }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.x
 
-      - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
+      - name: Cache MkDocs Material
+        run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
 
       - uses: actions/cache@v4
         with:
@@ -89,25 +77,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-dev build-essential
 
-      - name: Install Python requirements
+      - name: Install Python Requirements
         run: |
-          cd mkdocs-repo
           python -m pip install --upgrade pip setuptools 'cython<3.0.0' wheel
           python -m pip install -r requirements.txt
 
-      - name: Rewrite image paths (if enabled)
+      - name: Rewrite image and link paths (if enabled)
         if: ${{ inputs.rewrite_image_paths }}
         run: |
-          find mkdocs-repo/${{ env.DOCS_DIR }} -type f -name "*.md" -exec sed -i \
-            -e "s|](/|](/${{ inputs.rewrite_prefix }}/|g" \
-            -e "s|href=\"/|href=\"/${{ inputs.rewrite_prefix }}/|g" {} \;
+          find ${{ inputs.path }} -type f -name "*.md" -exec sed -i \
+            -e "s|](/|](/${{ inputs.url_prefix }}/|g" \
+            -e "s|href=\"/|href=\"/${{ inputs.url_prefix }}/|g" {} \;
           find . -type f -exec sed -i 's|/assets|assets|g' {} +
 
-      - name: Build or Deploy MkDocs
-        run: |
-          cd mkdocs-repo
-          sed -i 's/site_dir.*/site_dir: site/' mkdocs.yml
-          if ${{ inputs.deploy }}; then
-            mkdocs gh-deploy --force --clean --site-dir ./site
-          else
-            mkdocs build
+      - name: Deploy Docs with MkDocs (if deploy flag is set)
+        if: ${{ inputs.deploy }}
+        run: mkdocs gh-deploy --force --clean --site-dir ./site
+
+      - name: Build Docs with MkDocs (if deploy flag is not set)
+        if: ${{ inputs.deploy == false }}
+        run: mkdocs build
