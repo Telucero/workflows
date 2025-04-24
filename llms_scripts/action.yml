@@ -14,7 +14,6 @@ runs:
   using: "composite"
   steps:
     - run: |
-
         echo " Checking config path..."
         CONFIG_PATH="${{ inputs.config_path }}"
         if [[ -z "$CONFIG_PATH" || ! -f "$CONFIG_PATH" ]]; then
@@ -28,3 +27,12 @@ runs:
           --docs_path ${{ inputs.docs_path }} \
           --config_path "$CONFIG_PATH"
       shell: bash
+
+    - name: Upload LLMS Output Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: llms-files
+        path: |
+          ${{ inputs.docs_path }}/llms-full.txt
+          ${{ inputs.docs_path }}/llms.txt
+          ${{ inputs.docs_path }}/llms-files/
