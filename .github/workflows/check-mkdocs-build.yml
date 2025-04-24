@@ -1,125 +1,69 @@
-name: Deploy Docs (Reusable)
+name: Use Check MkDocs Build
 
 on:
   workflow_call:
     inputs:
+      repo_name:
+        required: true
+        type: string
+      mkdocs_repo:
+        required: true
+        type: string
       branch:
-        required: true
-        type: string
-      repository:
-        required: true
-        type: string
-      path:
-        required: true
-        type: string
-      url_prefix:
-        required: true
-        type: string
-      submodules:
-        required: false
-        type: boolean
-        default: false
-      docs_url:
         required: false
         type: string
-      rewrite_image_paths:
-        required: false
-        type: boolean
-        default: false
-      deploy:
-        required: false
-        type: boolean
-        default: false
-
+        default: main
     secrets:
       REPO_SCOPED_TOKEN:
-        required: false  # ✅ Makes the secret optional for flexibility
-
-permissions:
-  contents: write       # Grants write access to the repository contents
-  issues: write         # Grants permission to create or manage issues
+        required: true
 
 jobs:
-  deploy:
+  build-docs-site:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout caller repo
-      - name: Checkout caller repo
-        uses: actions/checkout@v4
-        with:
-          submodules: ${{ inputs.submodules }}
-          fetch-depth: 0
-          token: ${{ secrets.REPO_SCOPED_TOKEN || github.token }}  # Use token if provided, fallback to default
+      - name: Checkout source repo (docs repo)
+        uses: actions/checkout@v2
 
-      # Step 2: Configure Git credentials for the bot user
-      - name: Configure Git Creds
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-
-      # Step 3: Checkout the target docs repo using the provided inputs
-      - name: Checkout target docs repo
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.branch }}
-          path: ${{ inputs.path }}
-          token: ${{ secrets.REPO_SCOPED_TOKEN || github.token }}  # Optional token (PAT or GitHub token)
-
-      # Step 4: Setup Python environment
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.x
+          python-version: '3.10.12'
 
-      # Step 5: Cache MkDocs Material dependencies
-      - name: Cache MkDocs Material
-        run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
-
-      - uses: actions/cache@v4
-        with:
-          key: mkdocs-material-${{ env.cache_id }}
-          path: .cache
-          restore-keys: |
-            mkdocs-material-
-
-      # Step 6: Install system dependencies (required for MkDocs)
-      - name: Install System Dependencies
+      - name: Allow moving dotfiles
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-dev build-essential
+          shopt -s dotglob
 
-      # Step 7: Install Python requirements
-      - name: Install Python Requirements
+      - name: Clone MKDocs Repo
         run: |
-          python -m pip install --upgrade pip setuptools 'cython<3.0.0' wheel
-          python -m pip install -r requirements.txt
+          git clone https://${{ secrets.REPO_SCOPED_TOKEN }}@github.com/${{ inputs.mkdocs_repo }}.git mkdocs-repo
 
-      # Step 8: Rewrite image and link paths (if enabled)
-      - name: Rewrite image and link paths (if enabled)
-        if: ${{ inputs.rewrite_image_paths }}
+      - name: Prepare content directory inside MKDocs repo
         run: |
-          find ${{ inputs.path }} -type f -name "*.md" -exec sed -i \
-            -e "s|](/|](/${{ inputs.url_prefix }}/|g" \
-            -e "s|href=\"/|href=\"/${{ inputs.url_prefix }}/|g" {} \;
-          find . -type f -exec sed -i 's|/assets|assets|g' {} +
+          cd mkdocs-repo
 
-      # Step 9: Deploy Docs with MkDocs (if deploy flag is set)
-      - name: Deploy Docs with MkDocs (if deploy flag is set)
-        if: ${{ inputs.deploy }}
-        run: mkdocs gh-deploy --force --clean --site-dir ./site
+          # Determine content folder name (kluster uses 'docs', others use <repo_name>-docs)
+          if [[ "${{ inputs.repo_name }}" == "kluster" ]]; then
+            CONTENT_DIR="docs"
+          else
+            CONTENT_DIR="${{ inputs.repo_name }}-docs"
+          fi
 
-      # Step 10: Build Docs with MkDocs (if deploy flag is not set)
-      - name: Build Docs with MkDocs (if deploy flag is not set)
-        if: ${{ inputs.deploy == false }}
-        run: mkdocs build
+          mkdir -p "$CONTENT_DIR"
+          cd ..
 
-      # Step 11: Create Issue for Update Needed (if applicable)
-      - name: Create Issue for Update Needed (if applicable)
-        if: ${{ inputs.deploy == false }}  # Only create issue if deploy flag is not set
+          # Move content into the correct subfolder
+          find . -mindepth 1 -maxdepth 1 ! -name 'mkdocs-repo' -exec mv {} mkdocs-repo/$CONTENT_DIR/ \;
+
+      - name: Install pip requirements
         run: |
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.REPO_SCOPED_TOKEN }}" \
-            -d '{"title": "Update needed: wormhole-sdk-ts (1.15.0 -> 1.16.1)", "body": "The package wormhole-sdk-ts needs an update to version 1.16.1."}' \
-            "https://api.github.com/repos/${{ inputs.repository }}/issues"
+          cd mkdocs-repo
+          pip install --upgrade pip setuptools==65.7.0
+          pip install mistune==3.0.2  # Pin until https://github.com/lepture/mistune/issues/403 resolved
+          pip install -r requirements.txt &> /dev/null && echo "Dependencies installed" || echo "Error while installing dependencies"
+
+      - name: Build MkDocs site
+        run: |
+          cd mkdocs-repo
+          sed -i 's/site_dir.*/site_dir: site/' mkdocs.yml
+          mkdocs build
