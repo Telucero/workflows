@@ -1,19 +1,30 @@
-name: "LLMS Doc Generator "
-description: "Generate documentation for LLMs"
+name: "LLMS Doc Generator"
+description: "Generate documentation for LLMs with fallback config and output dir setup"
+
 inputs: 
   docs_path:
     description: "Path to the documentation directory"
     required: true
   config_path:
     description: "Path to the configuration file"
-    required: false 
-    default: "llms_config.json"
+    required: false
+    default: ""
 
 runs:
-  using: "composite" # w
+  using: "composite"
   steps:
-    - run:
-       python3 ${{ github.action_path }}/generate_llms.py \
+    - run: |
+
+        echo " Checking config path..."
+        CONFIG_PATH="${{ inputs.config_path }}"
+        if [[ -z "$CONFIG_PATH" || ! -f "$CONFIG_PATH" ]]; then
+          echo " No valid config file provided or found at path: $CONFIG_PATH"
+          echo " Using default config from action directory..."
+          CONFIG_PATH="${{ github.action_path }}/llms_config.json"
+        fi
+
+        echo " Running LLMS Generator..."
+        python3 ${{ github.action_path }}/generate_llms.py \
           --docs_path ${{ inputs.docs_path }} \
-          --config_path ${{ inputs.config_path }}
+          --config_path "$CONFIG_PATH"
       shell: bash
