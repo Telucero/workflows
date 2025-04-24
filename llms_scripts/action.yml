@@ -1,0 +1,19 @@
+name: "LLMS Doc Generator "
+description: "Generate documentation for LLMs"
+inputs: 
+  docs_path:
+    description: "Path to the documentation directory"
+    required: true
+  config_path:
+    description: "Path to the configuration file"
+    required: false 
+    default: "llms_config.json"
+
+runs:
+  using: "composite" # w
+  steps:
+    - run:
+       python3 ${{ github.action_path }}/generate_llms.py \
+          --docs_path ${{ inputs.docs_path }} \
+          --config_path ${{ inputs.config_path }}
+      shell: bash
