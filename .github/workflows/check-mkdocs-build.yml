@@ -36,38 +36,44 @@ on:
         required: false  # ✅ Makes the secret optional for flexibility
 
 permissions:
-  contents: write
+  contents: write       # Grants write access to the repository contents
+  issues: write         # Grants permission to create or manage issues
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout caller repo
       - name: Checkout caller repo
         uses: actions/checkout@v4
         with:
           submodules: ${{ inputs.submodules }}
           fetch-depth: 0
-          token: ${{ secrets.REPO_SCOPED_TOKEN || github.token }}  # ✅ Use token if provided, fallback to default
+          token: ${{ secrets.REPO_SCOPED_TOKEN || github.token }}  # Use token if provided, fallback to default
 
+      # Step 2: Configure Git credentials for the bot user
       - name: Configure Git Creds
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
 
+      # Step 3: Checkout the target docs repo using the provided inputs
       - name: Checkout target docs repo
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.branch }}
           path: ${{ inputs.path }}
-          token: ${{ secrets.REPO_SCOPED_TOKEN || github.token }}  # ✅ Optional token again
+          token: ${{ secrets.REPO_SCOPED_TOKEN || github.token }}  # Optional token (PAT or GitHub token)
 
+      # Step 4: Setup Python environment
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.x
 
+      # Step 5: Cache MkDocs Material dependencies
       - name: Cache MkDocs Material
         run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
 
@@ -78,16 +84,19 @@ jobs:
           restore-keys: |
             mkdocs-material-
 
+      # Step 6: Install system dependencies (required for MkDocs)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-dev build-essential
 
+      # Step 7: Install Python requirements
       - name: Install Python Requirements
         run: |
           python -m pip install --upgrade pip setuptools 'cython<3.0.0' wheel
           python -m pip install -r requirements.txt
 
+      # Step 8: Rewrite image and link paths (if enabled)
       - name: Rewrite image and link paths (if enabled)
         if: ${{ inputs.rewrite_image_paths }}
         run: |
@@ -96,10 +105,21 @@ jobs:
             -e "s|href=\"/|href=\"/${{ inputs.url_prefix }}/|g" {} \;
           find . -type f -exec sed -i 's|/assets|assets|g' {} +
 
+      # Step 9: Deploy Docs with MkDocs (if deploy flag is set)
       - name: Deploy Docs with MkDocs (if deploy flag is set)
         if: ${{ inputs.deploy }}
         run: mkdocs gh-deploy --force --clean --site-dir ./site
 
+      # Step 10: Build Docs with MkDocs (if deploy flag is not set)
       - name: Build Docs with MkDocs (if deploy flag is not set)
         if: ${{ inputs.deploy == false }}
         run: mkdocs build
+
+      # Step 11: Create Issue for Update Needed (if applicable)
+      - name: Create Issue for Update Needed (if applicable)
+        if: ${{ inputs.deploy == false }}  # Only create issue if deploy flag is not set
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.REPO_SCOPED_TOKEN }}" \
+            -d '{"title": "Update needed: wormhole-sdk-ts (1.15.0 -> 1.16.1)", "body": "The package wormhole-sdk-ts needs an update to version 1.16.1."}' \
+            "https://api.github.com/repos/${{ inputs.repository }}/issues"
