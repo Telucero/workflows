@@ -21,7 +21,7 @@ on:
         default: false
       docs_url:
         required: false
-        type: string  # New addition
+        type: string
       rewrite_image_paths:
         required: false
         type: boolean
@@ -30,6 +30,10 @@ on:
         required: false
         type: boolean
         default: false
+
+    secrets:
+      REPO_SCOPED_TOKEN:
+        required: false  # ✅ Makes the secret optional for flexibility
 
 permissions:
   contents: write
@@ -44,6 +48,7 @@ jobs:
         with:
           submodules: ${{ inputs.submodules }}
           fetch-depth: 0
+          token: ${{ secrets.REPO_SCOPED_TOKEN || github.token }}  # ✅ Use token if provided, fallback to default
 
       - name: Configure Git Creds
         run: |
@@ -56,6 +61,7 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.branch }}
           path: ${{ inputs.path }}
+          token: ${{ secrets.REPO_SCOPED_TOKEN || github.token }}  # ✅ Optional token again
 
       - name: Setup Python
         uses: actions/setup-python@v5
