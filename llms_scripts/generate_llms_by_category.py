@@ -1,42 +1,17 @@
+
 import re
 import os
 import json
-import argparse
-import logging
-import yaml  # For parsing YAML metadata (replace regex-based metadata extraction)
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 # Load configuration from llms_config.json
-def load_config(config_file='llms_config.json'):
-    """
-    Load configuration from a JSON file
-    """
-    script_dir = os.path.dirname(__file__)
-    config_path = os.path.join(script_dir, config_file)
+CONFIG_FILE = 'llms_config.json'  
+script_dir = os.path.dirname(__file__)
+config_path = os.path.join(script_dir, CONFIG_FILE)
 
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+with open(config_path, 'r', encoding='utf-8') as f:
+    config = json.load(f)
 
-# Function to escape special characters in Markdown content
-def escape_special_chars(text):
-    """
-    Escape characters that may interfere with Markdown formatting
-    """
-    return re.sub(r'([\\`*{}[\]()#+\-.!_>])', r'\\\1', text)
-
-# Argument parsing for input and output directories
-def parse_args():
-    parser = argparse.ArgumentParser(description="Generate LLMS files from documentation.")
-    parser.add_argument('--input', type=str, help="Path to the llms-full.txt file", default='docs/llms-full.txt')
-    parser.add_argument('--output', type=str, help="Output directory for generated files", default='docs/llms-files')
-    return parser.parse_args()
-
-# Load config variables
-config = load_config()
-
+# Configuration variables
 PROJECT_NAME = config["projectName"]
 PROJECT_URL = config["projectUrl"]
 RAW_BASE_URL = config["raw_base_url"]
@@ -46,16 +21,14 @@ AI_PROMPT_TEMPLATE = config["aiPromptTemplate"].format(PROJECT_NAME=PROJECT_NAME
 CATEGORIES = config.get("categories", [])
 SHARED_CATEGORIES = config.get("sharedCategories", [])
 
-# Get paths from arguments or defaults
-args = parse_args()
-llms_input_path = args.input
-output_dir = args.output
+docs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) # path to docs directory 
+llms_input_path = os.path.join(docs_dir, 'llms-full.txt') # points to the full llms-full.txt
+output_dir = os.path.join(docs_dir, 'llms-files')  # path where we store individual category llms files
+os.makedirs(output_dir, exist_ok=True) # make the directory if it doesn't exist
 
-os.makedirs(output_dir, exist_ok=True)  # Create the output directory if not exists
-
-def infer_section_label(url, section_priority):
+def infer_section_label(url, section_priority): # if we reorganize the website this will need to be changed
     """
-    Returns which section label from section_priority is present in the URL path.
+    Returns which section label from section_priority is present in the URL path, or defaults to 'other' if none match.
     """
     for section in section_priority:
         if f"/{section}/" in url:
@@ -64,7 +37,8 @@ def infer_section_label(url, section_priority):
 
 def sort_key_by_section(index_line, section_priority):
     """
-    Sorts doc pages by the order in `section_priority`.
+    Used to sort doc pages by the order in `section_priority`.
+    Parses the 'type: {section_label}' from index_line, then look it up in section_priority.
     """
     match = re.search(r"\[type: (.+?)\]", index_line)
     if not match:
@@ -76,120 +50,124 @@ def sort_key_by_section(index_line, section_priority):
     except ValueError:
         return (len(section_priority), index_line)
 
+# Extracts and writes a per-category LLMS file 
 def extract_category(category, section_priority, shared_data=None): 
     """
-    Extracts and writes a per-category LLMS file.
+    Reads the entire llms-full.txt file, finds all doc blocks that list `category`, writes them into llms-{category}.txt.
+    If shared_data is passed, also append the “shared categories” data to the end of the final file (i.e., basics, reference).
     """
-    try:
-        with open(llms_input_path, 'r', encoding='utf-8') as f: 
-            llms = f.read() 
+    with open(llms_input_path, 'r', encoding='utf-8') as f: # read the full LLMS input file
+        llms = f.read() 
 
-        blocks = re.findall(
-            r"Doc-Content: (.*?)\n--- BEGIN CONTENT ---\n(.*?)\n--- END CONTENT ---", 
-            llms, re.DOTALL
-        )
+    blocks = re.findall(
+        r"Doc-Content: (.*?)\n--- BEGIN CONTENT ---\n(.*?)\n--- END CONTENT ---", # extract all documentation blocks
+        llms, 
+        re.DOTALL
+    )
 
-        index_lines = [] 
-        content_blocks = [] 
+    index_lines = [] 
+    content_blocks = [] 
 
-        for url, content in blocks: 
-            metadata_match = re.search(r"---\n(.*?)\n---", content, re.DOTALL) 
-            if not metadata_match:
-                continue
+    for url, content in blocks: 
+        metadata_match = re.search(r"---\n(.*?)\n---", content, re.DOTALL) # extract the metadata block to find categories
+        if not metadata_match:
+            continue
 
-            metadata = metadata_match.group(1)
-            
-            # Try parsing YAML metadata
-            try:
-                metadata_dict = yaml.safe_load(metadata)
-            except yaml.YAMLError:
-                logger.error(f"YAML parsing error in metadata for {url}")
-                continue
+        metadata = metadata_match.group(1)
 
-            # Get categories from the metadata
-            tags = [tag.strip().lower() for tag in metadata_dict.get("categories", "").split(',')] 
+        category_line = re.search(r"categories:\s*(.*)", metadata) # looks for a line starting with 'categories:' in the metadata
+        if not category_line:
+            continue
 
-            if category.lower() in tags:
-                section_label = infer_section_label(url, SECTION_PRIORITY)
+        tags = [tag.strip().lower() for tag in category_line.group(1).split(',')] # the categories line into tags
 
-                if "/docs/" in url:
-                    rel_path = url.split("/docs/")[1].rstrip("/") + ".md"
-                    raw_url = f"{RAW_BASE_URL}/{rel_path}"
-                else:
-                    raw_url = url
+        # Check if the given category is listed in the metadata
+        if category.lower() in tags:
+            section_label = infer_section_label(url, SECTION_PRIORITY) # determine section based on url  !!! this to be adjusted once we reorganize the website 
 
-                index_lines.append(f"Doc-Page: {raw_url} [type: {section_label}]")
-                content_blocks.append(f"Doc-Content: {url}\n--- BEGIN CONTENT ---\n{escape_special_chars(content.strip())}\n--- END CONTENT ---")
-
-        if not content_blocks: 
-            logger.warning(f"[!] Skipping {category} – no matching pages.")
-            with open(os.path.join(output_dir, f"llms-{category.lower()}.txt"), 'w', encoding='utf-8') as f:
-                f.write(f"# No documentation found for category {category}\n")
-                f.write(f"No pages matched the category {category}.")
-            return
-
-        output_file = os.path.join(output_dir, f"llms-{category.lower()}.txt") 
-        with open(output_file, 'w', encoding='utf-8') as f:
-
-            f.write(f"# {PROJECT_NAME} Developer Documentation (LLMS Format)\n\n")
-            f.write(f"This file contains documentation for {PROJECT_NAME} ({PROJECT_URL}). {PROJECT_DESCRIPTION}\n")
-            f.write("It is intended for use with large language models (LLMs) to support developers.\n\n")
-
-            if category.lower() in [sc['name'].lower() for sc in SHARED_CATEGORIES]:
-                f.write(f"This file includes shared documentation for the category: {category}\n\n")
+            # Fix: Convert /docs/.../page -> relative GitHub path
+            if "/docs/" in url:
+                rel_path = url.split("/docs/")[1].rstrip("/") + ".md"
+                raw_url = f"{RAW_BASE_URL}/{rel_path}"
             else:
-                f.write(f"This file includes documentation for the product: {category}\n\n")
-                f.write(AI_PROMPT_TEMPLATE)
-                f.write("\n")
+                raw_url = url  # fallback
 
-            combined = list(zip(index_lines, content_blocks))
-            combined.sort(key=lambda p: sort_key_by_section(p[0], SECTION_PRIORITY))
-            sorted_index_lines, sorted_content_blocks = zip(*combined) if combined else ([], [])
+            index_lines.append(f"Doc-Page: {raw_url} [type: {section_label}]")
+            content_blocks.append(f"Doc-Content: {url}\n--- BEGIN CONTENT ---\n{content.strip()}\n--- END CONTENT ---") # store full page
 
-            f.write(f"## List of doc pages:\n")
-            f.write('\n'.join(sorted_index_lines))
-            f.write("\n\n## Full content for each doc page\n\n")
-            f.write('\n\n'.join(sorted_content_blocks))
+    if not content_blocks: # # if no doc pages matched, skip writing a file.
+        print(f"[!] Skipping {category} – no matching pages.")
+        return
 
-            if shared_data and category.lower() not in [sc['name'].lower() for sc in SHARED_CATEGORIES]:
-                for shared_cat_name, shared_cat_info in shared_data.items():
-                    context_index = shared_cat_info["index"]
-                    context_content = shared_cat_info["content"]
-                    context_description = shared_cat_info["contextDescription"]
+    # Output file for this category
+    output_file = os.path.join(output_dir, f"llms-{category.lower()}.txt") # write to output file
+    with open(output_file, 'w', encoding='utf-8') as f:
 
-                    f.write(f"\n\n## Shared Concepts from '{shared_cat_name}'\n\n")
-                    f.write(context_description)
-                    f.write("\n---\n\n")
-                    f.write("## List of shared concept pages:\n")
-                    f.write(context_index + "\n\n")
-                    f.write("## Full content for shared concepts:\n\n")
-                    f.write(context_content)
+        # I# 1) Intro context block for LLMs purpose 
+        f.write(f"# {PROJECT_NAME} Developer Documentation (LLMS Format)\n\n")
+        f.write(f"This file contains documentation for {PROJECT_NAME} ({PROJECT_URL}). {PROJECT_DESCRIPTION}\n")
+        f.write("It is intended for use with large language models (LLMs) to support developers working with Wormhole. The content includes selected pages from the official docs, organized by product category and section.\n\n")
 
-        logger.info(f"[✓] Generated {output_file} with {len(content_blocks)} pages")
+        # 2) check if it’s a “shared” category or a normal product category and write the prompt
+        if category.lower() in [sc['name'].lower() for sc in SHARED_CATEGORIES]:
+            f.write(f"This file includes shared documentation for the category: {category}\n\n")
+        else:
+            f.write(f"This file includes documentation for the product: {category}\n\n")
+            f.write(AI_PROMPT_TEMPLATE)
+            f.write("\n")
 
-    except Exception as e:
-        logger.error(f"Error generating LLMS for category {category}: {e}")
+        combined = list(zip(index_lines, content_blocks))
+        combined.sort(key=lambda p: sort_key_by_section(p[0], SECTION_PRIORITY))
+        sorted_index_lines, sorted_content_blocks = zip(*combined) if combined else ([], [])
 
+        # 3) List of doc pages (sorted)
+        f.write(f"## List of doc pages:\n")
+        f.write('\n'.join(sorted_index_lines))
+        f.write("\n\n## Full content for each doc page\n\n")
+        f.write('\n\n'.join(sorted_content_blocks))
+
+        # 4) Append shared data if we are generating a normal category
+        if shared_data and category.lower() not in [sc['name'].lower() for sc in SHARED_CATEGORIES]:
+            for shared_cat_name, shared_cat_info in shared_data.items():
+                context_index = shared_cat_info["index"]
+                context_content = shared_cat_info["content"]
+                context_description = shared_cat_info["contextDescription"]
+
+                f.write(f"\n\n## Shared Concepts from '{shared_cat_name}'\n\n")
+                f.write(context_description)
+                f.write("\n---\n\n")
+                f.write("## List of shared concept pages:\n")
+                f.write(context_index + "\n\n")
+                f.write("## Full content for shared concepts:\n\n")
+                f.write(context_content)
+
+    print(f"[✓] Generated {output_file} with {len(content_blocks)} pages")
+
+# Generate LLMS files for all categories including shared core content.
 def generate_all_categories():
     """
-    Generate LLMS files for shared categories and normal categories.
+    1) Generate the “shared categories” and store their extracted content in shared_data.
+    2) Generate each normal category, attaching the shared data at the end.
     """
     shared_data = {}
 
+    # 1) Generate each shared category and store it
     for sc in SHARED_CATEGORIES:
         cat_name = sc["name"]
         cat_description = sc["contextDescription"].format(PROJECT_NAME=PROJECT_NAME)
 
+        # Generate the shared category files
         extract_category(cat_name, SECTION_PRIORITY)
-
+        
         path = os.path.join(output_dir, f"llms-{cat_name.lower()}.txt")
         if not os.path.isfile(path):
-            logger.warning(f"[!] Shared category file not found for {cat_name}: {path}")
+            print(f"[!] Shared category file not found for {cat_name}: {path}")
             continue
 
         with open(path, 'r', encoding='utf-8') as f:
             raw = f.read()
 
+        # Extract the index block
         index_match = re.search(
             r"## List of doc pages:\n(.*?)\n+## Full content for each doc page",
             raw,
@@ -197,6 +175,7 @@ def generate_all_categories():
         )
         index = index_match.group(1).strip() if index_match else ""
 
+        # Extract the content blocks
         blocks = re.findall(
             r"Doc-Content: (.*?)\n--- BEGIN CONTENT ---\n(.*?)\n--- END CONTENT ---",
             raw, re.DOTALL
@@ -206,14 +185,17 @@ def generate_all_categories():
         for url, block in blocks:
             content += f"Doc-Content: {url}\n--- BEGIN CONTENT ---\n{block.strip()}\n--- END CONTENT ---\n\n"
 
+        # Store in shared_data
         shared_data[cat_name.lower()] = {
             "index": index,
             "content": content.strip(),
             "contextDescription": cat_description
         }
 
+    # 2) Generate each normal category, appending shared_data
     for cat in CATEGORIES:
         extract_category(cat, SECTION_PRIORITY, shared_data)
 
+# Only run this if script is executed directly
 if __name__ == "__main__":
     generate_all_categories()
