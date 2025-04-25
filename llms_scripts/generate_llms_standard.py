@@ -3,130 +3,82 @@ import os
 import re
 import requests
 import json
-import sys
 from transform_tables import transform_html_tables_to_markdown
-from collections import defaultdict
 
-def load_config(config_path):
-    """Load configuration from a JSON file"""
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+# Load configuration
+config_path = os.path.join(os.path.dirname(__file__), 'llms_config.json')
+with open(config_path, 'r', encoding='utf-8') as f:
+    config = json.load(f)
 
-def load_yaml(yaml_file):
-    """Load YAML file"""
-    with open(yaml_file, "r", encoding="utf-8") as file:
-        return yaml.safe_load(file)
+PROJECT_NAME = config["projectName"]
+PROJECT_URL = config["projectUrl"]
+PROJECT_DESCRIPTION = config["projectDescription"]
+RAW_BASE_URL = config["raw_base_url"]
 
-# Configuration loading
-def get_config_path(default_path, input_config_path):
-    """Resolve the config file path, defaulting to the provided or default location"""
-    config_path = input_config_path if input_config_path else default_path
-    if not os.path.isabs(config_path):
-        config_path = os.path.join(os.getcwd(), config_path)
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Config file not found at {config_path}")
-    return config_path
+# Define documentation structure
+docs_repo = 'docs'  # Folder name where docs are stored
+docs_url = 'https://example.com/docs/'  # Update to actual docs URL
+
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+docs_dir = os.path.join(base_dir, docs_repo)
+yaml_path = os.path.join(base_dir, docs_repo, 'variables.yml')
+output_file = os.path.join(docs_dir, 'llms-full.txt')
+snippet_dir = os.path.join(docs_dir, '.snippets')
+structure_output = os.path.join(docs_dir, 'llms.txt')
+
+SNIPPET_REGEX = r"--8<--\s*['\"](https?://[^'\"]+|[^'\"]+)['\"]"
 
 def get_all_markdown_files(directory):
-    """Recursively collect all markdown (.md, .mdx) files from subdirectories of the given directory"""
     results = []
-    if not os.path.exists(directory):
-        print(f"Docs directory not found: {directory}")
-        return results
-
     for root, _, files in os.walk(directory):
-        # Skip the root directory
-        if root == directory:
+        if root == directory or any(x in root for x in ['.github', 'node_modules', 'venv']):
             continue
-
-        # Skip '.github' and other irrelevant folders
-        if '.github' in root.split(os.sep) or 'node_modules' in root.split(os.sep) or 'venv' in root.split(os.sep):
-            continue
-
         for file in files:
             if file.endswith(('.md', '.mdx')):
                 results.append(os.path.join(root, file))
+    return sorted(results)
 
-    # Sort the files to ensure consistent order
-    results.sort()  # Sorting alphabetically
-    return results
-
-def build_index_section(files, docs_url, yaml_file):
-    """Generate index section for the documentation"""
-    section = "## List of doc pages:\n"
-    for file in files:
-        relative_path = os.path.relpath(file, docs_url)
-        if '.snippets' in relative_path.split(os.sep):
-            continue
-        rel_path = os.path.relpath(file, docs_url)
-        raw_url = f"{yaml_file['raw_base_url']}/{rel_path.replace(os.sep, '/')}"
-        section += f"Doc-Page: {raw_url}\n"
-    return section
-
-def replace_snippet_placeholders(markdown, snippet_directory, yaml_data):
-    """Replace snippet placeholders with their actual content"""
-    def replacement(match):
-        snippet_ref = match.group(1)
-        # Handle local file or remote GitHub snippet
-        if snippet_ref.startswith("http"):
-            return fetch_remote_snippet(snippet_ref, yaml_data)
-        else:
-            return fetch_local_snippet(snippet_ref, snippet_directory)
-
-    return re.sub(r"--8<--\s*['\"](https?://[^'\"]+|[^'\"]+)['\"]", replacement, markdown)
+def parse_line_range(snippet_path):
+    parts = snippet_path.split(':')
+    file = parts[0]
+    line_start = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    line_end = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+    return file, line_start, line_end
 
 def fetch_local_snippet(snippet_ref, snippet_directory):
-    """Fetch snippet from local directory"""
-    file_only, line_start, line_end = parse_line_range(snippet_ref)
-    absolute_snippet_path = os.path.join(snippet_directory, file_only)
-
-    if not os.path.exists(absolute_snippet_path):
-        print(f"Snippet file not found: {absolute_snippet_path}. Leaving placeholder unchanged.")
+    file, start, end = parse_line_range(snippet_ref)
+    snippet_path = os.path.join(snippet_directory, file)
+    if not os.path.exists(snippet_path):
         return snippet_ref
-
-    with open(absolute_snippet_path, 'r', encoding='utf-8') as snippet_file:
-        snippet_content = snippet_file.read()
-        snippet_content = transform_html_tables_to_markdown(snippet_content)  # Transform tables to markdown
-
-    if line_start is not None and line_end is not None:
-        lines = snippet_content.split('\n')
-        snippet_content = '\n'.join(lines[line_start:line_end])
-
-    return snippet_content.strip()
+    with open(snippet_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+        content = transform_html_tables_to_markdown(content)
+    if start is not None and end is not None:
+        lines = content.split('\n')
+        content = '\n'.join(lines[start:end])
+    return content.strip()
 
 def fetch_remote_snippet(snippet_ref, yaml_data):
-    """Fetch snippet from remote URL"""
     match = re.match(r'^(https?://[^:]+)(?::(\d+))?(?::(\d+))?$', snippet_ref)
     if not match:
-        print(f"Invalid snippet reference format: {snippet_ref}")
         return f"Invalid snippet reference: {snippet_ref}"
 
-    url = match.group(1)
-    line_start = int(match.group(2)) if match.group(2) else None
-    line_end = int(match.group(3)) if match.group(3) else None
-
-    url = resolve_placeholders(url, yaml_data)  # resolve any template placeholders
-
+    url = resolve_placeholders(match.group(1), yaml_data)
     if "{{" in url:
-        print(f"Skipping snippet with unresolved template: {url}")
         return f"Unresolved template: {url}"
 
     try:
         response = requests.get(url)
         response.raise_for_status()
-        snippet_content = response.text
-
-        if line_start is not None and line_end is not None:
-            lines = snippet_content.split('\n')
-            snippet_content = '\n'.join(lines[line_start-1:line_end])
-
-        return snippet_content.strip()
-    except requests.RequestException as e:
-        print(f"Failed to fetch snippet from {url}: {e}")
-        return f"Error fetching snippet from {url}"
+        content = response.text
+        if match.group(2) and match.group(3):
+            lines = content.split('\n')
+            content = '\n'.join(lines[int(match.group(2))-1:int(match.group(3))])
+        return content.strip()
+    except Exception as e:
+        return f"Error fetching snippet: {e}"
 
 def resolve_placeholders(text, data):
-    """Resolve placeholders in text using values from YAML config"""
     while True:
         match = re.search(r'{{(.*?)}}', text)
         if not match:
@@ -134,174 +86,89 @@ def resolve_placeholders(text, data):
         key_path = match.group(1).strip()
         value = get_value_from_path(data, key_path)
         if value is None:
-            print(f"Warning: Unresolved key path {key_path} in {text}")
             break
         text = text.replace(match.group(0), str(value))
     return text
 
 def get_value_from_path(data, path):
-    """Retrieve value from nested YAML data using dotted key path"""
     keys = path.split('.')
-    value = data
     for key in keys:
-        if key not in value:
+        data = data.get(key)
+        if data is None:
             return None
-        value = value[key]
-    return value
+    return data
 
-def parse_line_range(snippet_path):
-    """Parse the line range for snippet references (e.g. 'file.py:10:20')"""
-    parts = snippet_path.split(':')
-    file_only = parts[0]
-    line_start = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
-    line_end = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-    return file_only, line_start, line_end
+def replace_snippets(markdown, snippet_dir, yaml_data):
+    def repl(match):
+        ref = match.group(1)
+        return fetch_remote_snippet(ref, yaml_data) if ref.startswith("http") else fetch_local_snippet(ref, snippet_dir)
+    return re.sub(SNIPPET_REGEX, repl, markdown)
 
-def build_content_section(files, yaml_file):
-    """Generate the content section for each markdown file"""
-    section = "\n## Full content for each doc page\n\n"
+def load_yaml(path):
+    with open(path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file)
+
+def build_index(files):
+    section = "## List of doc pages:\n"
     for file in files:
-        relative_path = os.path.relpath(file, yaml_file['docs_url'])
-
-        # Skip printing .snippets individually
-        if '.snippets' in relative_path.split(os.sep):
-            continue
-
-        doc_url_path = re.sub(r'\.(md|mdx)$', '', relative_path)
-        doc_url = f"{yaml_file['docs_url']}{doc_url_path}"
-
-        # Remove trailing /index from doc_url
-        if doc_url.endswith('/index'):
-            doc_url = doc_url[:-6]
-
-        with open(file, 'r', encoding='utf-8') as file_content:
-            content = file_content.read()
-
-        # Replace snippet placeholders
-        content = replace_snippet_placeholders(content, yaml_file['snippet_dir'], yaml_file)
-
-        section += f"Doc-Content: {doc_url}/\n"
-        section += "--- BEGIN CONTENT ---\n"
-        section += content.strip()
-        section += "\n--- END CONTENT ---\n\n"
-
+        rel_path = os.path.relpath(file, docs_dir)
+        if '.snippets' not in rel_path:
+            raw_url = f"{RAW_BASE_URL}/{rel_path.replace(os.sep, '/')}"
+            section += f"Doc-Page: {raw_url}\n"
     return section
 
-def generate_llms_structure_txt(files, docs_url, yaml_file):
-    """Generate a simple llms.txt file with documentation structure"""
-    structure_output = os.path.join(docs_url, 'llms.txt')
-    
-    structure_lines = [
-        f"# {yaml_file['projectName']}",
-        "", 
-        f"> {yaml_file['projectDescription']}",
-        "",  
-        "## Docs",
-        ""
-    ]
+def build_content(files, yaml_data):
+    section = "\n## Full content for each doc page\n\n"
+    for file in files:
+        rel_path = os.path.relpath(file, docs_dir)
+        if '.snippets' in rel_path:
+            continue
+        doc_url = f"{docs_url}{re.sub(r'\\.(md|mdx)$', '', rel_path)}"
+        if doc_url.endswith('/index'):
+            doc_url = doc_url[:-6]
+        with open(file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        content = replace_snippets(content, snippet_dir, yaml_data)
+        section += f"Doc-Content: {doc_url}/\n--- BEGIN CONTENT ---\n{content.strip()}\n--- END CONTENT ---\n\n"
+    return section
 
+def generate_structure_txt(files):
+    lines = [
+        f"# {PROJECT_NAME}",
+        f"> {PROJECT_DESCRIPTION}",
+        "## Docs", ""
+    ]
     for file in files:
         if not os.path.exists(file) or '.snippets' in file:
             continue
-
         with open(file, 'r', encoding='utf-8') as f:
             content = f.read()
-
-        metadata_match = re.search(r"---\n(.*?)\n---", content, re.DOTALL)
-        if metadata_match:
-            try:
-                metadata_yaml = yaml.safe_load(metadata_match.group(1))
-                title = metadata_yaml.get('title', 'Untitled')
-                description = metadata_yaml.get('description', 'No description available.')
-            except yaml.YAMLError:
-                title = 'Untitled'
-                description = 'No description available.'
+        metadata = re.search(r"---\n(.*?)\n---", content, re.DOTALL)
+        if metadata:
+            data = yaml.safe_load(metadata.group(1))
+            title = data.get("title", "Untitled")
+            desc = data.get("description", "No description available.")
         else:
-            title = 'Untitled'
-            description = 'No description available.'
-
-        rel_path = os.path.relpath(file, docs_url)
-        doc_url = f"{yaml_file['raw_base_url']}/{rel_path.replace(os.sep, '/')}"
-
-        structure_lines.append(f"- [{title}]({doc_url}): {description}")
-
+            title, desc = "Untitled", "No description available."
+        rel_path = os.path.relpath(file, docs_dir)
+        doc_url = f"{RAW_BASE_URL}/{rel_path.replace(os.sep, '/')}"
+        lines.append(f"- [{title}]({doc_url}): {desc}")
     with open(structure_output, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(structure_lines))
-
+        f.write('\n'.join(lines))
     print(f"[✓] Generated llms.txt at: {structure_output}")
 
-def generate_llms_by_category(files, yaml_file, output_folder):
-    """Generate category-based llms-<category>.txt files"""
-    categories = defaultdict(list)
-
-    # Organize docs by categories
-    for file in files:
-        with open(file, 'r', encoding='utf-8') as f:
-            content = f.read()
-            metadata_match = re.search(r"---\n(.*?)\n---", content, re.DOTALL)
-            if metadata_match:
-                try:
-                    metadata_yaml = yaml.safe_load(metadata_match.group(1))
-                    categories_data = metadata_yaml.get('categories', [])
-                    for category in categories_data:
-                        categories[category].append(file)
-                except yaml.YAMLError:
-                    continue
-
-    # Generate category files
-    for category, docs in categories.items():
-        category_file = os.path.join(output_folder, f"llms-{category}.txt")
-        with open(category_file, 'w', encoding='utf-8') as f:
-            f.write(f"# Documentation for category: {category}\n\n")
-            for doc in docs:
-                relative_path = os.path.relpath(doc, yaml_file['docs_url'])
-                doc_url = f"{yaml_file['docs_url']}{relative_path.replace(os.sep, '/')}"
-                f.write(f"Doc-Page: {doc_url}\n")
-                f.write("--- BEGIN CONTENT ---\n")
-                with open(doc, 'r', encoding='utf-8') as doc_file:
-                    f.write(doc_file.read())
-                f.write("\n--- END CONTENT ---\n\n")
-
-def generate_standard_llms(docs_dir, yaml_file):
-    """Generate the full llms.txt file and the llms-full.txt"""
+def generate_standard_llms():
     files = get_all_markdown_files(docs_dir)
-    output_folder = os.path.join(docs_dir, "llms-files")
-    os.makedirs(output_folder, exist_ok=True)
-
-    # Generate the full documentation file (llms-full.txt)
-    llms_content = f"# {yaml_file['projectName']} llms-full.txt\n"
-    llms_content += f"{yaml_file['projectName']}. {yaml_file['projectDescription']}\n\n"
-    llms_content += "## Generated automatically. Do not edit directly.\n\n"
-    llms_content += f"Documentation: {yaml_file['docs_url']}\n\n"
-
-    llms_content += build_index_section(files, yaml_file['docs_url'], yaml_file)
-    llms_content += build_content_section(files, yaml_file)
-
-    output_file = os.path.join(docs_dir, 'llms-full.txt')
-    with open(output_file, 'w', encoding='utf-8') as output:
-        output.write(llms_content)
-
+    yaml_data = load_yaml(yaml_path)
+    output = f"# {PROJECT_NAME} llms-full.txt\n{PROJECT_DESCRIPTION}\n\n"
+    output += "## Generated automatically. Do not edit directly.\n\n"
+    output += f"Documentation: {docs_url}\n\n"
+    output += build_index(files)
+    output += build_content(files, yaml_data)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(output)
     print(f"[✓] Generated llms-full.txt at: {output_file}")
-
-    # Generate category-based llms-<category>.txt files
-    generate_llms_by_category(files, yaml_file, output_folder)
-    
-    # Generate structure file (llms.txt)
-    generate_llms_structure_txt(files, yaml_file['docs_url'], yaml_file)
+    generate_structure_txt(files)
 
 if __name__ == "__main__":
-    try:
-        # Get paths from environment variables
-        docs_path = sys.argv[1]  # Pass docs_path
-        config_path = sys.argv[2]  # Pass config_path
-        
-        # Load config and YAML
-        config = load_config(config_path)
-        yaml_file = load_yaml(config['yaml_path'])
-
-        # Generate the LLMS files
-        generate_standard_llms(docs_path, yaml_file)
-    
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    generate_standard_llms()
