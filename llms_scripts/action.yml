@@ -21,18 +21,13 @@ runs:
 
         CONFIG_PATH="${{ inputs.config_path }}"
 
-        # If no config path is provided, fall back to the default
+        # If no config path is provided, use default config in the action directory
         if [[ -z "$CONFIG_PATH" ]]; then
-          echo "No config path provided. Falling back to default."
+          echo "No config path provided. Using default."
           CONFIG_PATH="${{ github.action_path }}/llms_config.json"
         fi
 
-        # If the config path is not absolute, resolve it relative to GITHUB_WORKSPACE
-        if [[ "$CONFIG_PATH" != /* ]]; then
-          CONFIG_PATH="${GITHUB_WORKSPACE}/${CONFIG_PATH}"
-        fi
-
-        # Check if the config file exists
+        # If the file doesn't exist, fall back to the default config
         if [[ ! -f "$CONFIG_PATH" ]]; then
           echo "Config file not found at: $CONFIG_PATH"
           echo "Falling back to default config in action directory."
@@ -41,7 +36,7 @@ runs:
 
         echo "Using config: $CONFIG_PATH"
 
-        # Save the resolved path to a temp file for use in next steps
+        # Save the resolved path to the environment for use in next step
         echo "CONFIG_PATH=$CONFIG_PATH" >> $GITHUB_ENV
 
     - name: Run LLMS Generator
@@ -49,8 +44,8 @@ runs:
       run: |
         echo "Running LLMS Generator..."
         python3 "${{ github.action_path }}/generate_llms.py" \
-          --docs_path "${{ inputs.docs_path }}" \
-          --config_path "$CONFIG_PATH"
+          "${{ inputs.docs_path }}" \
+          "$CONFIG_PATH"
 
     - name: Upload LLMS Output Artifacts
       uses: actions/upload-artifact@v4
