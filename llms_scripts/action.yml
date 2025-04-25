@@ -3,8 +3,9 @@ description: "Generate documentation for LLMs with fallback config and output di
 
 inputs: 
   docs_path:
-    description: "Path to the documentation directory"
+    description: "Path to the directory where output will be saved"
     required: true
+
   config_path:
     description: "Path to the configuration file"
     required: false
@@ -13,25 +14,33 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Run LLMS Generator
+    - name: Check and resolve config path
       shell: bash
       run: |
         echo "Checking config path..."
 
         CONFIG_PATH="${{ inputs.config_path }}"
 
-        # Convert to absolute path if it's relative
+        # Resolve relative to workspace
         if [[ "$CONFIG_PATH" != /* ]]; then
-          CONFIG_PATH="${PWD}/${CONFIG_PATH}"
+          CONFIG_PATH="${GITHUB_WORKSPACE}/${CONFIG_PATH}"
         fi
 
         if [[ ! -f "$CONFIG_PATH" ]]; then
-          echo "No valid config file provided or found at path: $CONFIG_PATH"
-          echo "Using default config from action directory..."
+          echo " Config file not found at: $CONFIG_PATH"
+          echo " Falling back to default config in action directory."
           CONFIG_PATH="${{ github.action_path }}/llms_config.json"
         fi
 
-        echo "Running LLMS Generator with config path: $CONFIG_PATH"
+        echo " Using config: $CONFIG_PATH"
+
+        # Save resolved path to a temp file for use in next step
+        echo "CONFIG_PATH=$CONFIG_PATH" >> $GITHUB_ENV
+
+    - name: Run LLMS Generator
+      shell: bash
+      run: |
+        echo "Running LLMS Generator..."
         python3 "${{ github.action_path }}/generate_llms.py" \
           --docs_path "${{ inputs.docs_path }}" \
           --config_path "$CONFIG_PATH"
