@@ -23,8 +23,14 @@ runs:
       shell: bash
       run: |
         echo "Checking config path..."
-        CONFIG_PATH="${{ inputs.config_path }}"
-        
+
+        # Convert to absolute path based on GITHUB_WORKSPACE
+        if [[ -n "${{ inputs.config_path }}" ]]; then
+          CONFIG_PATH="${GITHUB_WORKSPACE}/${{ inputs.config_path }}"
+        else
+          CONFIG_PATH=""
+        fi
+
         if [[ -z "$CONFIG_PATH" || ! -f "$CONFIG_PATH" ]]; then
           echo "No valid config file provided or found at path: $CONFIG_PATH"
           echo "Using default config from action directory..."
