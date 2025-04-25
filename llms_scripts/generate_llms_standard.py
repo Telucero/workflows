@@ -5,6 +5,7 @@ import requests
 import json
 import sys
 from transform_tables import transform_html_tables_to_markdown
+from collections import defaultdict
 
 def load_config(config_path):
     """Load configuration from a JSON file"""
@@ -229,10 +230,45 @@ def generate_llms_structure_txt(files, docs_url, yaml_file):
 
     print(f"[✓] Generated llms.txt at: {structure_output}")
 
+def generate_llms_by_category(files, yaml_file, output_folder):
+    """Generate category-based llms-<category>.txt files"""
+    categories = defaultdict(list)
+
+    # Organize docs by categories
+    for file in files:
+        with open(file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            metadata_match = re.search(r"---\n(.*?)\n---", content, re.DOTALL)
+            if metadata_match:
+                try:
+                    metadata_yaml = yaml.safe_load(metadata_match.group(1))
+                    categories_data = metadata_yaml.get('categories', [])
+                    for category in categories_data:
+                        categories[category].append(file)
+                except yaml.YAMLError:
+                    continue
+
+    # Generate category files
+    for category, docs in categories.items():
+        category_file = os.path.join(output_folder, f"llms-{category}.txt")
+        with open(category_file, 'w', encoding='utf-8') as f:
+            f.write(f"# Documentation for category: {category}\n\n")
+            for doc in docs:
+                relative_path = os.path.relpath(doc, yaml_file['docs_url'])
+                doc_url = f"{yaml_file['docs_url']}{relative_path.replace(os.sep, '/')}"
+                f.write(f"Doc-Page: {doc_url}\n")
+                f.write("--- BEGIN CONTENT ---\n")
+                with open(doc, 'r', encoding='utf-8') as doc_file:
+                    f.write(doc_file.read())
+                f.write("\n--- END CONTENT ---\n\n")
+
 def generate_standard_llms(docs_dir, yaml_file):
     """Generate the full llms.txt file and the llms-full.txt"""
     files = get_all_markdown_files(docs_dir)
+    output_folder = os.path.join(docs_dir, "llms-files")
+    os.makedirs(output_folder, exist_ok=True)
 
+    # Generate the full documentation file (llms-full.txt)
     llms_content = f"# {yaml_file['projectName']} llms-full.txt\n"
     llms_content += f"{yaml_file['projectName']}. {yaml_file['projectDescription']}\n\n"
     llms_content += "## Generated automatically. Do not edit directly.\n\n"
@@ -247,6 +283,10 @@ def generate_standard_llms(docs_dir, yaml_file):
 
     print(f"[✓] Generated llms-full.txt at: {output_file}")
 
+    # Generate category-based llms-<category>.txt files
+    generate_llms_by_category(files, yaml_file, output_folder)
+    
+    # Generate structure file (llms.txt)
     generate_llms_structure_txt(files, yaml_file['docs_url'], yaml_file)
 
 if __name__ == "__main__":
