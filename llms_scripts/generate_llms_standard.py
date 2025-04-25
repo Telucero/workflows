@@ -123,7 +123,7 @@ def build_content(files, yaml_data):
         rel_path = os.path.relpath(file, docs_dir)
         if '.snippets' in rel_path:
             continue
-        doc_url = f"{docs_url}{re.sub(r'\\.(md|mdx)$', '', rel_path)}"
+        doc_url = f"{docs_url}{re.sub(r'\.(md|mdx)$', '', rel_path)}"
         if doc_url.endswith('/index'):
             doc_url = doc_url[:-6]
         with open(file, 'r', encoding='utf-8') as f:
