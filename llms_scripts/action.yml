@@ -13,18 +13,11 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Checkout kluster-mkdocs repo
-      uses: actions/checkout@v3
-      with:
-        repository: Telucero/kluster-mkdocs
-        path: kluster-mkdocs
-
     - name: Run LLMS Generator
       shell: bash
       run: |
         echo "Checking config path..."
 
-        # Convert to absolute path based on GITHUB_WORKSPACE
         if [[ -n "${{ inputs.config_path }}" ]]; then
           CONFIG_PATH="${GITHUB_WORKSPACE}/${{ inputs.config_path }}"
         else
