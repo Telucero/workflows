@@ -11,6 +11,10 @@ inputs:
     required: false
     default: ""
 
+  variables_yml_path:
+    description: "Path to the variables.yml file in the client repo"
+    required: true
+
 runs:
   using: "composite"
   steps:
@@ -41,8 +45,33 @@ runs:
 
         echo "Using config: $CONFIG_PATH"
 
-        # Save the resolved path to a temp file for use in next steps
+        # Save the resolved config path to a temp file for use in next steps
         echo "CONFIG_PATH=$CONFIG_PATH" >> $GITHUB_ENV
+
+    - name: Check and resolve variables.yml path
+      shell: bash
+      run: |
+        echo "Checking variables.yml path..."
+
+        # Use the specific path where the kluster-mkdocs repo is checked out
+        VARIABLES_YML_PATH="${{ inputs.variables_yml_path }}"
+
+        # Combine the `kluster-mkdocs` directory path with the provided variables.yml path
+        if [[ "$VARIABLES_YML_PATH" != /* ]]; then
+          VARIABLES_YML_PATH="${GITHUB_WORKSPACE}/kluster-mkdocs/${VARIABLES_YML_PATH}"
+        fi
+
+        # Check if the variables.yml file exists
+        if [[ ! -f "$VARIABLES_YML_PATH" ]]; then
+          echo "variables.yml file not found at: $VARIABLES_YML_PATH"
+          echo "Exiting..."
+          exit 1
+        fi
+
+        echo "Using variables.yml: $VARIABLES_YML_PATH"
+
+        # Save the resolved path to a temp file for use in next steps
+        echo "VARIABLES_YML_PATH=$VARIABLES_YML_PATH" >> $GITHUB_ENV
 
     - name: Run LLMS Generator
       shell: bash
@@ -50,7 +79,8 @@ runs:
         echo "Running LLMS Generator..."
         python3 "${{ github.action_path }}/generate_llms.py" \
           --docs_path "${{ inputs.docs_path }}" \
-          --config_path "$CONFIG_PATH"
+          --config_path "$CONFIG_PATH" \
+          --variables_yml_path "$VARIABLES_YML_PATH"
 
     - name: Upload LLMS Output Artifacts
       uses: actions/upload-artifact@v4
