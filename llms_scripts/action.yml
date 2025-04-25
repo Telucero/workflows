@@ -27,8 +27,9 @@ runs:
           CONFIG_PATH="${{ github.action_path }}/llms_config.json"
         fi
 
-        # Resolve relative to workspace if necessary
+        # Resolve relative to workspace if necessary (but ensure it's not already absolute)
         if [[ "$CONFIG_PATH" != /* ]]; then
+          # Only append GITHUB_WORKSPACE if it's a relative path
           CONFIG_PATH="${GITHUB_WORKSPACE}/${CONFIG_PATH}"
         fi
 
