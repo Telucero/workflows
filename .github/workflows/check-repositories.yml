@@ -29,7 +29,5 @@ jobs:
           python .github/scripts/check_repositories.py
 
       - name: Create GitHub Issues for Outdated Repositories
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Using the secret passed to the workflow
         run: |
           python .github/scripts/create_issues.py
