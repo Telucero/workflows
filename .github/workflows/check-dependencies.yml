@@ -34,5 +34,7 @@ jobs:
           python .github/scripts/check_snippets.py ./outdated_dependencies.json .
 
       - name: Create GitHub issues for outdated dependencies
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python .github/scripts/create_issues.py
