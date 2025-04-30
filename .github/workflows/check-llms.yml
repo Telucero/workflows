@@ -1,0 +1,72 @@
+name: Check LLMS Consistency
+
+on:
+  workflow_call:
+    inputs:
+      llms_filename:
+        required: true
+        type: string
+      repo_dir:
+        required: true
+        type: string
+    secrets: {}  # None needed currently
+
+jobs:
+  check-llms:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml requests
+          if [[ "${{ inputs.llms_filename }}" == *"llms-full.txt" ]]; then
+            pip install beautifulsoup4
+          fi
+
+      - name: Get SHA256 hash of the PR's ${{ inputs.llms_filename }}
+        id: pr_llms_hash
+        run: |
+          if [ -f "${{ inputs.llms_filename }}" ]; then
+            sha256sum "${{ inputs.llms_filename }}" | awk '{ print $1 }' > pr_sha256.txt
+          else
+            echo "0000" > pr_sha256.txt
+          fi
+          cat pr_sha256.txt
+
+      - name: Generate ${{ inputs.llms_filename }} using the Python script
+        run: python3 scripts/generate_llms.py
+
+      - name: Calculate SHA256 hash of the generated ${{ inputs.llms_filename }}
+        id: generated_llms_hash
+        run: |
+          llms_file="/home/runner/work/${{ inputs.repo_dir }}/${{ inputs.repo_dir }}/${{ inputs.llms_filename }}"
+          if [ -f "$llms_file" ]; then
+            sha256sum "$llms_file" | awk '{ print $1 }' > generated_sha256.txt
+          else
+            echo "Error: $llms_file not found"
+            exit 1
+          fi
+          cat generated_sha256.txt
+
+      - name: Compare the SHA256 hashes
+        run: |
+          generated_hash=$(cat generated_sha256.txt)
+          pr_hash=$(cat pr_sha256.txt)
+
+          if [ "$generated_hash" != "$pr_hash" ]; then
+            echo "Error: SHA256 hashes do not match. The generated file differs from the one in the PR."
+            echo "You need to run the generate LLMS script:"
+            echo "python3 scripts/generate_llms.py"
+            exit 1
+          else
+            echo "SHA256 hashes match. The ${{ inputs.llms_filename }} file is consistent."
+          fi
