@@ -86,6 +86,5 @@ jobs:
 
       - name: Build and Deploy Docs with MkDocs
         run: |
-          cd ${{ inputs.path }}
           mkdocs build
-          mkdocs gh-deploy --force --clean
+          mkdocs gh-deploy --force --clean --site-dir ./site
