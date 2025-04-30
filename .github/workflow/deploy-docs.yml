@@ -1,0 +1,91 @@
+name: Deploy Docs (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        required: true
+        type: string
+      repository:
+        required: true
+        type: string
+      path:
+        required: true
+        type: string
+      url_prefix:
+        required: true
+        type: string
+      submodules:
+        required: false
+        type: boolean
+        default: false
+      requirements_path:
+        required: false
+        type: string
+        default: "requirements.txt"
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.submodules }}
+          fetch-depth: 0
+
+      - name: Configure Git Creds
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Checkout target docs repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.branch }}
+          path: ${{ inputs.path }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Cache MkDocs Material
+        run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        with:
+          key: mkdocs-material-${{ env.cache_id }}
+          path: .cache
+          restore-keys: |
+            mkdocs-material-
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-dev build-essential
+
+      - name: Install Python Requirements
+        run: |
+          python -m pip install --upgrade pip setuptools 'cython<3.0.0' wheel
+          python -m pip install -r ${{ inputs.requirements_path }}
+          # Ensure mkdocs and mkdocs-material are installed
+          python -m pip install mkdocs mkdocs-material
+
+      - name: Rewrite image and link paths
+        run: |
+          find ${{ inputs.path }} -type f -name "*.md" -exec sed -i \
+            -e "s|](/|](/${{ inputs.url_prefix }}/|g" \
+            -e "s|href=\"/|href=\"/${{ inputs.url_prefix }}/|g" {} \;
+          find . -type f -exec sed -i 's|/assets|assets|g' {} +
+
+      - name: Build and Deploy Docs with MkDocs
+        run: |
+          cd ${{ inputs.path }}
+          mkdocs build
+          mkdocs gh-deploy --force --clean
