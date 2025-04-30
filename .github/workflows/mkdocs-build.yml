@@ -1,3 +1,5 @@
+# In: Telucero/workflows/.github/workflows/mkdocs-build.yml
+
 name: MkDocs Build
 
 on:
@@ -9,6 +11,9 @@ on:
       docs_dir:
         required: true
         type: string
+      needs_mistune:  # New input added
+        required: false   # You can make it optional if you don't always need it
+        type: boolean     # Treat it as a boolean input
     secrets:
       token:
         required: true
@@ -48,7 +53,8 @@ jobs:
         run: |
           cd mkdocs-repo
           pip3 install --upgrade pip setuptools==65.7.0
-          if [[ "${{ inputs.docs_dir }}" == "kluster-docs" ]]; then
+          # Install mistune if needs_mistune is true
+          if [[ "${{ inputs.needs_mistune }}" == "true" ]]; then
             pip3 install mistune==3.0.2
           fi
           pip3 install -r requirements.txt &> /dev/null || echo "Dependency install failed"
