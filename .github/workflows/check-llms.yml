@@ -10,7 +10,7 @@ on:
         required: true
         type: string
       llms_script_dir:
-        required: false
+        required: true
         type: string
         default: "scripts/llms-scripts"
     secrets: {}  # No secrets required
