@@ -1,9 +1,10 @@
 name: Check Repositories
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # Runs every day at midnight
-  workflow_dispatch:  # Allows manual triggering of the workflow
+  workflow_call:  # This enables the workflow to be reusable
+    secrets:
+      REPO_SCOPED_TOKEN:  # Define the secret that will be used in the called workflow
+        required: true
 
 jobs:
   check-repositories:
@@ -31,6 +32,6 @@ jobs:
 
       - name: Create GitHub Issues for Outdated Repositories
         env:
-          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}  # Using the renamed secret here
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}  # Using the secret passed to the workflow
         run: |
           python .github/scripts/create_issues.py
