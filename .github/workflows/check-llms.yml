@@ -9,7 +9,11 @@ on:
       repo_dir:
         required: true
         type: string
-    secrets: {}  # None needed currently
+      llms_script_dir:
+        required: false
+        type: string
+        default: "scripts/llms-scripts"
+    secrets: {}  # No secrets required
 
 jobs:
   check-llms:
@@ -32,7 +36,7 @@ jobs:
             pip install beautifulsoup4
           fi
 
-      - name: Get SHA256 hash of the PR's ${{ inputs.llms_filename }}
+      - name: Get SHA256 hash of PR's ${{ inputs.llms_filename }}
         id: pr_llms_hash
         run: |
           if [ -f "${{ inputs.llms_filename }}" ]; then
@@ -42,8 +46,9 @@ jobs:
           fi
           cat pr_sha256.txt
 
-      - name: Generate ${{ inputs.llms_filename }} using the Python script
-        run: python3 scripts/generate_llms.py
+      - name: Generate ${{ inputs.llms_filename }} using Python script
+        run: |
+          python3 ${{ inputs.llms_script_dir }}/generate_llms.py
 
       - name: Calculate SHA256 hash of the generated ${{ inputs.llms_filename }}
         id: generated_llms_hash
@@ -63,9 +68,9 @@ jobs:
           pr_hash=$(cat pr_sha256.txt)
 
           if [ "$generated_hash" != "$pr_hash" ]; then
-            echo "Error: SHA256 hashes do not match. The generated file differs from the one in the PR."
-            echo "You need to run the generate LLMS script:"
-            echo "python3 scripts/generate_llms.py"
+            echo " Error: SHA256 hashes do not match. The generated file differs from the one in the PR."
+            echo "Please run the generate LLMS script locally:"
+            echo "python3 ${{ inputs.llms_script_dir }}/generate_llms.py"
             exit 1
           else
             echo "SHA256 hashes match. The ${{ inputs.llms_filename }} file is consistent."
