@@ -1,16 +1,15 @@
 name: Check Repositories
 
 on:
-  workflow_call:
-    secrets:
-      github_token:
-        required: true
+  schedule:
+    - cron: '0 0 * * *'  # Runs every day at midnight
+  workflow_dispatch:  # Allows manual triggering of the workflow
 
 jobs:
   check-repositories:
     runs-on: ubuntu-latest
     permissions:
-      issues: write
+      issues: write  # Permissions required to create issues
 
     steps:
       - name: Checkout repository
@@ -32,6 +31,6 @@ jobs:
 
       - name: Create GitHub Issues for Outdated Repositories
         env:
-          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}  # Using the renamed secret here
         run: |
           python .github/scripts/create_issues.py
