@@ -2,9 +2,6 @@ name: Check Repositories
 
 on:
   workflow_call:  # This enables the workflow to be reusable
-    secrets:
-      GITHUB_TOKEN:  # Define the secret that will be used in the called workflow
-        required: true
 
 jobs:
   check-repositories:
