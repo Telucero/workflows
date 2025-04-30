@@ -32,6 +32,6 @@ jobs:
 
       - name: Create GitHub Issues for Outdated Repositories
         env:
-          GITHUB_TOKEN: ${{ secrets.github_token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python .github/scripts/create_issues.py
