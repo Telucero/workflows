@@ -1,18 +1,26 @@
-name: CheckMkDocsBuild
+name: MkDocs Build
 
 on:
-  pull_request_target:
-    branches:
-      - master
-      - main
+  workflow_call:
+    inputs:
+      mkdocs_repo:
+        required: true
+        type: string
+      docs_dir:
+        required: true
+        type: string
+    secrets:
+      token:
+        required: true
 
 jobs:
   build-docs-site:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v2
         with:
-          submodules: recursive  # ensures Wormhole gets submodule update automatically
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
@@ -21,61 +29,28 @@ jobs:
       - name: Enable dotglob to include dotfiles
         run: shopt -s dotglob
 
-      - name: Set Environment Variables
-        id: vars
-        run: |
-          echo "REPO_NAME=$(basename $GITHUB_REPOSITORY)" >> $GITHUB_ENV
-
       - name: Clone MkDocs Repository
         run: |
-          case "$REPO_NAME" in
-            polkadot-docs)
-              git clone https://${{ secrets.REPO_SCOPED_TOKEN }}@github.com/papermoonio/polkadot-mkdocs mkdocs-repo
-              DOC_FOLDER=polkadot-docs
-              ;;
-            kluster-docs)
-              git clone https://${{ secrets.KLUSTER_MKDOCS_READ }}@github.com/papermoonio/kluster-mkdocs.git mkdocs-repo
-              DOC_FOLDER=kluster-docs
-              ;;
-            moonbeam-docs)
-              git clone https://${{ secrets.REPO_SCOPED_TOKEN }}@github.com/papermoonio/moonbeam-mkdocs.git mkdocs-repo
-              DOC_FOLDER=moonbeam-docs
-              ;;
-            tanssi-docs)
-              git clone https://${{ secrets.REPO_SCOPED_TOKEN }}@github.com/moondance-labs/tanssi-mkdocs.git mkdocs-repo
-              DOC_FOLDER=tanssi-docs
-              ;;
-            wormhole-docs)
-              git clone https://${{ secrets.REPO_SCOPED_TOKEN }}@github.com/papermoonio/wormhole-mkdocs.git mkdocs-repo
-              DOC_FOLDER=wormhole-docs
-              ;;
-            *)
-              echo "Unknown repo: $REPO_NAME"
-              exit 1
-              ;;
-          esac
-          echo "DOC_FOLDER=$DOC_FOLDER" >> $GITHUB_ENV
+          echo "Cloning: ${{ inputs.mkdocs_repo }}"
+          git clone https://${{ secrets.token }}@github.com/${{ inputs.mkdocs_repo }} mkdocs-repo
 
       - name: Copy Docs Content into MkDocs Repo
-        if: env.REPO_NAME != 'wormhole-docs'
+        if: ${{ inputs.docs_dir != 'wormhole-docs' }}
         run: |
-          mkdir mkdocs-repo/${DOC_FOLDER}
-          find . -mindepth 1 -maxdepth 1 ! -name 'mkdocs-repo' -exec mv {} mkdocs-repo/${DOC_FOLDER}/ \;
+          mkdir mkdocs-repo/${{ inputs.docs_dir }}
+          find . -mindepth 1 -maxdepth 1 ! -name 'mkdocs-repo' -exec mv {} mkdocs-repo/${{ inputs.docs_dir }}/ \;
 
       - name: Update Submodule for Wormhole
-        if: env.REPO_NAME == 'wormhole-docs'
+        if: ${{ inputs.docs_dir == 'wormhole-docs' }}
         run: git submodule update --remote
 
       - name: Install Python Requirements
         run: |
           cd mkdocs-repo
           pip3 install --upgrade pip setuptools==65.7.0
-
-          # Special case for Kluster
-          if [[ "$REPO_NAME" == "kluster-docs" ]]; then
+          if [[ "${{ inputs.docs_dir }}" == "kluster-docs" ]]; then
             pip3 install mistune==3.0.2
           fi
-
           pip3 install -r requirements.txt &> /dev/null || echo "Dependency install failed"
 
       - name: Build MkDocs Site
